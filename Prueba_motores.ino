@@ -1,5 +1,9 @@
 /*** Timer 1 setup for Sample ***/
 #include <TimerOne.h>
+#include <MPU9250.h>
+#include <Wire.h> 
+
+MPU9250 mpu;
 
 const unsigned long interval = 10000; // intervalo en us
 
@@ -27,7 +31,15 @@ const int sens8= 9;
 
 void setup() {
   Serial.begin(115200);
+  Wire.begin();
+  delay(2000);
   Serial.println("Serial Open");
+
+  mpu.setup(0x68);
+  delay(5000);
+
+  mpu.calibrateAccelGyro();
+  mpu.calibrateMag();
 
   // Motor Setup
   pinMode(enA, OUTPUT);
@@ -86,5 +98,10 @@ void loop() {
       analogWrite(enB, 0);
   }
   
-
+  if (mpu.update()){
+    Serial.print(mpu.getYaw()); Serial.print(",");
+    Serial.print(mpu.getPitch()); Serial.print(",");
+    Serial.print(mpu.getRoll());Serial.print("\n");
+  }
 }
+
