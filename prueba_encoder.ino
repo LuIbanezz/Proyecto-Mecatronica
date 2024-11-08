@@ -2,8 +2,12 @@
 #include <TimerOne.h>
 #include <Wire.h> 
 
-#define DELAY 2000
 
+//para girar a la izquierda es 300. Para la derecha es cerca de 240
+#define DELAY 2000
+#define PULSES_A 240
+#define PULSES_B 320
+ 
 /*** Motor Setup ***/
 const int enA = 8;
 const int in1 = 28;
@@ -48,6 +52,10 @@ void setup() {
   pinMode(in1, OUTPUT);
   pinMode(in2, OUTPUT);
 
+  pinMode(enB, OUTPUT);
+  pinMode(in3, OUTPUT);
+  pinMode(in4, OUTPUT);
+
   // Encoder Setup
   interrupts();
   attachInterrupt(digitalPinToInterrupt(encoderA), countPulseA, RISING); // Interrupción en flanco ascendente
@@ -58,34 +66,51 @@ void setup() {
 void loop() {
     // Mostrar el número total de pulsos en el monitor serie
 
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-    analogWrite(enA, 120);
+    // digitalWrite(in1, LOW);
+    // digitalWrite(in2, HIGH);
+    // analogWrite(enA, 120);
 
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
-    analogWrite(enB, 120);
+    // digitalWrite(in3, LOW);
+    // digitalWrite(in4, HIGH);
+    // analogWrite(enB, 120);
 
-    delay(2000);
+    // delay(2000);
 
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, LOW);
-    analogWrite(enA, 120);
+    // digitalWrite(in1, LOW);
+    // digitalWrite(in2, LOW);
+    // analogWrite(enA, 120);
 
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, LOW);
-    analogWrite(enB, 120);
+    // digitalWrite(in3, LOW);
+    // digitalWrite(in4, LOW);
+    // analogWrite(enB, 120);
 
     Serial.println("Pulsos A: ");
     Serial.println(pulseCountA);
     Serial.println("Pulsos B: ");
     Serial.println(pulseCountB);
-    
-    delay(2000);
 
-    pulseCountA = 0;
-    pulseCountB = 0;
 
+    // if (pulseCountA < PULSES_A && pulseCountB < PULSES_B)
+    // {
+    //   turn();
+    // }
+    //  else if (pulseCountA < PULSES_A && pulseCountB >= PULSES_B)
+    //  {
+    //    turn_right_wheel();
+    //  }
+    //  else if (pulseCountB < PULSES_B && pulseCountA >= PULSES_A)
+    //  {
+    //    turn_left_wheel();
+    //  }
+    if (pulseCountA < PULSES_A)
+    {
+      turn_right();
+    }
+
+    else
+    {
+      stop();
+    }
 }
 
 void countPulseA() {
@@ -94,4 +119,67 @@ void countPulseA() {
 
 void countPulseB() {
     pulseCountB = pulseCountB+1; // Incrementa el contador de pulsos cada vez que detecta un flanco ascendente
+}
+
+void turn_left()
+{
+  Serial.println("girando izq");
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  analogWrite(enA, 120);
+
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  analogWrite(enB, 120);
+}
+
+void turn_right()
+{
+  Serial.println("girando der");
+  digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  analogWrite(enA, 120);
+
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+  analogWrite(enB, 120);
+}
+void turn_right_wheel()
+{
+  Serial.println("falta derecha");
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH); 
+  analogWrite(enA, 120);
+
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  analogWrite(enB, 0);
+}
+
+void turn_left_wheel()
+{
+  Serial.println("falta izquierda");
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  analogWrite(enA, 0);
+
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  analogWrite(enB, 120);
+}
+
+
+void stop()
+{
+  Serial.println("Terminó de girar");
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, LOW);
+  analogWrite(enA, 0);
+
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+  analogWrite(enB, 0);
+  pulseCountA = 0;
+  pulseCountB = 0;
+  delay(5000);
 }
