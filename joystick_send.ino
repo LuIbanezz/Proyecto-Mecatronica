@@ -1,6 +1,7 @@
 #include <SPI.h>
 #include <RF24.h>
 
+//#define DEBUG
 // Pin definitions for buttons and LED
 #define DISABLE_BUTTON_PIN 2
 #define ENABLE_BUTTON_PIN 3
@@ -27,10 +28,9 @@ enum ButtonState {
   DOWN = 3,
   LEFT = 4,
   RIGHT = 5,
-  IDLE = 6
 };
 
-int lastSent = IDLE;
+int lastSent = DISABLE;
 
 void setup() {
   Serial.begin(9600);
@@ -50,54 +50,76 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(DISABLE_BUTTON_PIN), disableRelay, FALLING);
   attachInterrupt(digitalPinToInterrupt(ENABLE_BUTTON_PIN), enableRelay, FALLING);
 
+  #ifdef DEBUG
   Serial.println("Pre radio configuration is ready.");
+  #endif
+
   // Initialize radio
   radio.begin();
   radio.openWritingPipe(address);
   radio.setPALevel(RF24_PA_LOW);
   radio.stopListening();
 
+  #ifdef DEBUG
   Serial.println("Ready to detect button presses and send via radio.");
+  #endif
 }
 
 void loop() {
 
+  Serial.println("Loopping");
   if (digitalRead(UP_BUTTON_PIN) == LOW) {
+    #ifdef DEBUG
     Serial.println("Up is pressed");
+    #endif
     sendState(UP);
     while (digitalRead(UP_BUTTON_PIN) == LOW) {}  // Wait until button is released
+    #ifdef DEBUG
     Serial.println("Up is released");
+    #endif
   }
 
   if (digitalRead(DOWN_BUTTON_PIN) == LOW) {
+    #ifdef DEBUG
     Serial.println("Down is pressed");
+    #endif
     sendState(DOWN);
     while (digitalRead(DOWN_BUTTON_PIN) == LOW) {}  // Wait until button is released
+    #ifdef DEBUG
     Serial.println("Down is released");
+    #endif
   }
 
   if (digitalRead(LEFT_BUTTON_PIN) == LOW) {
+    #ifdef DEBUG
     Serial.println("Left is pressed");
+    #endif
     sendState(LEFT);
     while (digitalRead(LEFT_BUTTON_PIN) == LOW) {}  // Wait until button is released
+    #ifdef DEBUG
     Serial.println("Left is released");
+    #endif
   }
 
   if (digitalRead(RIGHT_BUTTON_PIN) == LOW) {
+    #ifdef DEBUG
     Serial.println("Right is pressed");
+    #endif
     sendState(RIGHT);
     while (digitalRead(RIGHT_BUTTON_PIN) == LOW) {}  // Wait until button is released
+    #ifdef DEBUG
     Serial.println("Right is released");
+    #endif
   }
 
-  sendState(IDLE);
-  Serial.println("Idle...");
+  if(lastSent != ENABLE){
+    sendState(DISABLE);
+  }
 
   delay(10);
 }
 
 void disableRelay() {
-  // Toggle the LED state
   sendState(DISABLE);
 }
 
@@ -106,33 +128,23 @@ void enableRelay(){
 }
 
 void sendState(ButtonState state) {
-//   if (lastSent == DISABLE) {
-//     // Only send if transitioning from DISABLE to ENABLE
-//     if (state == ENABLE) {
-//         radio.write(&state, sizeof(state));
-//         Serial.print("State sent: ");
-//         Serial.println(state);  // For debugging
-//         lastSent = state;
-//     }
-// } else if (state != lastSent) {
-//     // Send only if there’s a state change that’s not from DISABLE to anything else
-//     radio.write(&state, sizeof(state));
-//     Serial.print("State sent: ");
-//     Serial.println(state);  // For debugging
-//     lastSent = state;
-// }
-
   if (state != lastSent) {
     // Send only if there’s a state change that’s not from DISABLE to anything else
     bool result = radio.write(&state, sizeof(state));
+
+    #ifdef DEBUG
     Serial.print("State sent: ");
-    Serial.println(state);  // For debugging
+    Serial.println(state);
+    #endif
+
     lastSent = state;
 
+    #ifdef DEBUG
     if (result) {
         Serial.println("Transmission successful.");
     } else {
         Serial.println("Transmission failed.");
     }
+    #endif
   }  
 }
