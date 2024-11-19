@@ -17,12 +17,12 @@ void handleRadioInterrupt();
 /*** Motor Setup ***/
 
 // MOTOR A = RIGHT WHEEL
-const int enA = 8; //PWM
-const int in1 = 28; //INA
-const int in2 = 30;  // INBMotor A aprox 3060 pulsos en 2 seg
+const int enA = 9; //PWM
+const int in1 = 30; //INA
+const int in2 = 28;  // INBMotor A aprox 3060 pulsos en 2 seg
 
 // MOTOR B = LEFT WHEEL
-const int enB = 9; //PWM
+const int enB = 8; //PWM
 const int in3 = 29; //INA
 const int in4 = 31; //INB Motor B aprox 2370 pulsos en 2 seg (varia bastante :C)
 
@@ -31,8 +31,8 @@ const int sens1= 47;
 const int sens2= 23;
 const int sens3= 52;
 const int sens4= 50;
-const int sens5= 53; 
-const int sens6= 43;
+const int sens5= 48; 
+const int sens6= 39;
 const int sens7= 51; 
 const int sens8= 45;
 
@@ -92,6 +92,8 @@ enum WHEEL_DIRECTIONS {
 
 bool manual = true;
 
+/*******************************************************/
+/*******************************************************/
 void setup() {
   Serial.begin(115200);
   Wire.begin();
@@ -123,38 +125,70 @@ void setup() {
   pinMode(sens8, INPUT);
 
   // Radio Setup
-  if (!radio.begin()) {
-    Serial.println("Error al inicializar el radio.");
-    while (1); // Detener si falla la inicialización
-  }
+  //radio.begin(); //ver
+  // if (!radio.begin()) {
+  //   Serial.println("Error al inicializar el radio.");
+  //   //while (1); // Detener si falla la inicialización
+  // }
   
-  radio.openReadingPipe(0, address); // Abre el canal de lectura
-  radio.setPALevel(RF24_PA_LOW);     // Nivel de potencia bajo para pruebas cercanas
-  radio.startListening();            // Configura el módulo en modo escucha
+  // radio.openReadingPipe(0, address); // Abre el canal de lectura
+  // radio.setPALevel(RF24_PA_LOW);     // Nivel de potencia bajo para pruebas cercanas
+  // radio.startListening();            // Configura el módulo en modo escucha
 
-  pinMode(RC_IRQ, INPUT);
-  attachInterrupt(digitalPinToInterrupt(RC_IRQ), handleRadioInterrupt, FALLING); // Interrupción
+  // pinMode(RC_IRQ, INPUT);
+  // attachInterrupt(digitalPinToInterrupt(RC_IRQ), handleRadioInterrupt, FALLING); // Interrupción
 
-  Serial.println("Receptor listo para recibir señales.");
+  // Serial.println("Receptor listo para recibir señales.");
 
-  delay(1000);
+  // delay(1000);
 
 }
 
 void loop() {
   //Reinicia el radio si no ha recibido nada por más de 5 segundos
-  if (millis() - lastReceived > 5000) {
-    Serial.println("Reiniciando radio por inactividad.");
-    radio.stopListening();
-    radio.startListening();
-    lastReceived = millis();
+  // if (millis() - lastReceived > 5000) {
+  //   Serial.println("Reiniciando radio por inactividad.");
+  //   radio.stopListening();
+  //   radio.startListening();
+  //   lastReceived = millis();
+  // }
+
+
+ // state = receivedCommand;
+ state = AUTO;
+  // State Machine
+  switch (state) {
+    case AUTO:
+      //Serial.println("Caso automatico");
+      manual = false;
+      autoPilot();
+      break;
+    case MANUAL:
+      manual = true;
+    case RIGHT_T:
+      if (manual)
+        turn_right();
+      break;
+    case LEFT_T:
+      if (manual)
+        turn_left();
+      break;
+    case FORWARD_M:
+      if (manual)
+        forward();
+      break;
+    case BACKWARD_M:
+      if (manual)
+        backward();
+      break;
+    case STOP:
+      if (manual)
+        stop();
+      break;
+    default:
+      break;
   }
-
-  //Poner aca las funciones de prueba
-  
-  
-
-
+  prevState = state;
 }
 
 /****************************************************************/
@@ -169,12 +203,12 @@ void countPulseB() {
     pulseCountB = pulseCountB+1; // Incrementa el contador de pulsos cada vez que detecta un flanco ascendente
 }
 
-void handleRadioInterrupt() {
-  radio.read(&receivedCommand, sizeof(receivedCommand));
-  lastReceived = millis(); // Actualiza el tiempo de recepción
-  //Serial.print("Comando recibido: ");
-  //Serial.println(receivedCommand);
-}
+// void handleRadioInterrupt() {
+//   radio.read(&receivedCommand, sizeof(receivedCommand));
+//   lastReceived = millis(); // Actualiza el tiempo de recepción
+//   Serial.print("Comando recibido: ");
+//   Serial.println(receivedCommand);
+// }
 
 /****************************************************************/
 /****************************************************************/
@@ -207,28 +241,21 @@ void backward(){
 }
 
 
-void autoPilot(){ //TODO por ahora esto es muy secuencial, no permitiria que nada lo interrumpa no?
-  //readIRSensors();
-  forward_till_edge();
-  turn_left_deg(180);
-  forward_till_edge();
-  turn_right_deg(180);
-  forward_till_edge();
-  if((sens.IF && sens.DF) && (sens.IL || sens.DL)){
-    if(sens.IL && !sens.DF && !sens.IL && !sens.DL){
-      turn_left_deg(180);
-    }
-    else if(!sens.IL && !sens.DF && !sens.IL && sens.DL){
-      turn_right_deg(180);
-      forward_till_edge();
-      turn_left_deg(180);
-    }
-  }
-  else{
-    turn_left_deg(180);
+void autoPilot(){
+  if(!digitalRead(sens.IF)&&!digitalRead(sens.DF))
+  {
+    Serial.println("Avanzo");
     forward_till_edge();
-    if((sens.IF && sens.DF) && (sens.IL || sens.DL)){
-      turn_right_deg(180);
+    if(!digitalRead(sens.IL))
+    {
+      Serial.println("giro izq");
+      turn_left_deg(90);
+    }
+
+    else if(!digitalRead(sens.DL))
+    {
+      Serial.println("giro der");
+      turn_right_deg(90);
     }
   }
 }
@@ -249,7 +276,6 @@ void turnRightWheel(int dir){
   switch (dir) {
     case BACKWARD:
       set_motor_speed(in1, in2, enA, -VEL);
-
       break;
     case FORWARD:
       set_motor_speed(in1, in2, enA, VEL);
@@ -303,82 +329,49 @@ void move_backward(int time){
 }
 
 void forward_till_edge(){
-  while(!digitalRead(sens.IF) && !digitalRead(sens.DF)){
+  while((!digitalRead(sens.IF)) && (!digitalRead(sens.DF)) && (receivedCommand == AUTO)){
     forward_detectObstacles();
+    Serial.println("forward till edge");
   }
   move_backward(500);
   stop();
 }
 
-void forward_detectObstacles(){ //SIGUIENTE A VER
+void forward_detectObstacles(){ 
 
   int counter = 0;
 
   forward();
-  if(!sens.FIA || !sens.FDA){ //Objeto al frente
-    if(sens.IL && sens.DL){
-      turn_right_deg(90);
-      while(sens.IA){
-        move_forward(5);
-        counter++;
-      }
-      turn_left_deg(90);
-      if(sens.IF || sens.DF){
-        while(counter--){
-          move_forward(5);
-        }
-        turn_right_deg(90);
-        //break;
-      }
-      else{
-        //break;
-      }
+  if(!digitalRead(sens.FIA) || !digitalRead(sens.FDA)){ //Objeto al frente
+    Serial.println("Encontre un objeto");
+    if(!digitalRead(sens.IL) && !digitalRead(sens.DL)){
+      Serial.println("1");
+      move_backward(300);
+      turn_right_deg(40);
+      
     }
-    else if(sens.IL && !sens.DL){
-      if(sens.IL && sens.DL){
-        turn_left_deg(90);
-        while(sens.DA){
-          move_forward(5);
-          counter++;
-        }
-        turn_right_deg(90);
-        if(sens.IF || sens.DF){
-          while(counter--){
-            move_forward(5);
-          }
-          turn_left_deg(90);
-          //break;
-        }
-        else{
-          //break;
-        }
+    else if(!digitalRead(sens.IL) && digitalRead(sens.DL)){
+      Serial.println("2");
+      move_backward(300);
+      turn_left_deg(40);
+      
     }
-    else if(!sens.IL && sens.DL){
-      turn_right_deg(90);
-      while(sens.IA){
-        move_forward(5);
-        counter++;
-      }
-      turn_left_deg(90);
-      if(sens.IF || sens.DF){
-        while(counter--){
-          move_forward(5);
-        }
-        turn_right_deg(90);
-        //break;
-      }
-      else{
-        //break;
-      }  
+    else if(digitalRead(sens.IL) && !digitalRead(sens.DL)){
+      Serial.println("3");
+      move_backward(300);
+      turn_right_deg(40);
+      
     }
+    else{
+      Serial.println("4");
+    }  
   }
 }
-}
 
 
 /****************************************************************/
 /****************************************************************/
-//momento crisis
+//Seteo velocidad de motores con Drivers
 void set_motor_speed(const int ina, const int inb, const int en, int speed)
 {
   unsigned char reverse = 0;
