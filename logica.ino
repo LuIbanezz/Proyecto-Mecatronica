@@ -13,7 +13,17 @@ DualVNH5019MotorShield md;
 void countPulseA(); 
 void countPulseB(); 
 void handleRadioInterrupt();
+void forward_till_edge();
+void turn_left_deg(int deg);
+void turn_right_deg(int deg);
+void set_motor_speed(const int ina, const int inb, const int en, int speed);
+void move_forward(int time);
+void move_backward(int time);
+void forward_detectObstacles();
 
+/*** Drivers Setup ***/
+const int csA = A9;
+const int csB = A8;
 /*** Motor Setup ***/
 
 // MOTOR A = RIGHT WHEEL
@@ -29,11 +39,11 @@ const int in4 = 31; //INB Motor B aprox 2370 pulsos en 2 seg (varia bastante :C)
 /*** Sensor Setup ***/
 const int sens1= 47;
 const int sens2= 23;
-const int sens3= 52;
-const int sens4= 50;
-const int sens5= 48; 
+const int sens3= 49;
+const int sens4= 48;
+const int sens5= 44; 
 const int sens6= 39;
-const int sens7= 51; 
+const int sens7= 33; 
 const int sens8= 45;
 
 // Definir la estructura para los sensores
@@ -71,17 +81,18 @@ RF24 radio(RC_CE, RC_CSN); // Inicialización del módulo RF
 const byte address[6] = "00001"; // Dirección del canal de comunicación
 unsigned long lastReceived = millis();
 
+unsigned long prev_time = millis();
+
 /*** State Machine Setup ***/
 volatile int state = 0;
 int prevState = 0;
 enum STATE_MACHINE {
-  AUTO, 
   MANUAL, 
-  RIGHT_T, 
-  LEFT_T, 
-  FORWARD_M, 
-  BACKWARD_M, 
-  STOP
+  AUTO, 
+  FORWARD_M,
+  BACKWARD_M,
+  LEFT_T,
+  RIGHT_T  
   };
 
 /*** Other ***/
@@ -91,6 +102,7 @@ enum WHEEL_DIRECTIONS {
   };
 
 bool manual = true;
+const int buzzer = 22;
 
 /*******************************************************/
 /*******************************************************/
@@ -99,6 +111,9 @@ void setup() {
   Wire.begin();
   delay(2000);
   Serial.println("Serial Open");
+
+   // Buzzer Setup
+  pinMode(buzzer, OUTPUT);
 
    // Motor Setup
   pinMode(enA, OUTPUT);
@@ -125,20 +140,19 @@ void setup() {
   pinMode(sens8, INPUT);
 
   // Radio Setup
-  //radio.begin(); //ver
-  // if (!radio.begin()) {
-  //   Serial.println("Error al inicializar el radio.");
-  //   //while (1); // Detener si falla la inicialización
-  // }
+  if (!radio.begin()) {
+    Serial.println("Error al inicializar el radio.");
+    while (1); // Detener si falla la inicialización
+  }
   
-  // radio.openReadingPipe(0, address); // Abre el canal de lectura
-  // radio.setPALevel(RF24_PA_LOW);     // Nivel de potencia bajo para pruebas cercanas
-  // radio.startListening();            // Configura el módulo en modo escucha
+  radio.openReadingPipe(0, address); // Abre el canal de lectura
+  radio.setPALevel(RF24_PA_LOW);     // Nivel de potencia bajo para pruebas cercanas
+  radio.startListening();            // Configura el módulo en modo escucha
 
-  // pinMode(RC_IRQ, INPUT);
-  // attachInterrupt(digitalPinToInterrupt(RC_IRQ), handleRadioInterrupt, FALLING); // Interrupción
+  pinMode(RC_IRQ, INPUT);
+  attachInterrupt(digitalPinToInterrupt(RC_IRQ), handleRadioInterrupt, FALLING); // Interrupción
 
-  // Serial.println("Receptor listo para recibir señales.");
+  Serial.println("Receptor listo para recibir señales.");
 
   // delay(1000);
 
@@ -146,16 +160,16 @@ void setup() {
 
 void loop() {
   //Reinicia el radio si no ha recibido nada por más de 5 segundos
-  // if (millis() - lastReceived > 5000) {
-  //   Serial.println("Reiniciando radio por inactividad.");
-  //   radio.stopListening();
-  //   radio.startListening();
-  //   lastReceived = millis();
-  // }
+  if (millis() - lastReceived > 5000) {
+    Serial.println("Reiniciando radio por inactividad.");
+    radio.stopListening();
+    radio.startListening();
+    lastReceived = millis();
+  }
 
-
- // state = receivedCommand;
- state = AUTO;
+//forward();
+ state = receivedCommand;
+ //state = AUTO;
   // State Machine
   switch (state) {
     case AUTO:
@@ -164,7 +178,10 @@ void loop() {
       autoPilot();
       break;
     case MANUAL:
+    //Serial.println("Caso manual");
       manual = true;
+      stop();
+      break;
     case RIGHT_T:
       if (manual)
         turn_right();
@@ -174,21 +191,31 @@ void loop() {
         turn_left();
       break;
     case FORWARD_M:
-      if (manual)
-        forward();
+      if(!digitalRead(sens.IF) && !digitalRead(sens.DF) && (manual))
+      {
+        forward();       
+      }
+      else
+      { 
+        stop();
+        digitalWrite(buzzer,HIGH);
+      }
       break;
     case BACKWARD_M:
       if (manual)
+      {
+        digitalWrite(buzzer,LOW);
         backward();
+      }
+        
       break;
-    case STOP:
-      if (manual)
-        stop();
-      break;
+    // case STOP:
+    //   if (manual)
+    //     stop();
+    //   break;
     default:
       break;
   }
-  prevState = state;
 }
 
 /****************************************************************/
@@ -203,12 +230,12 @@ void countPulseB() {
     pulseCountB = pulseCountB+1; // Incrementa el contador de pulsos cada vez que detecta un flanco ascendente
 }
 
-// void handleRadioInterrupt() {
-//   radio.read(&receivedCommand, sizeof(receivedCommand));
-//   lastReceived = millis(); // Actualiza el tiempo de recepción
-//   Serial.print("Comando recibido: ");
-//   Serial.println(receivedCommand);
-// }
+void handleRadioInterrupt() {
+  radio.read(&receivedCommand, sizeof(receivedCommand));
+  lastReceived = millis(); // Actualiza el tiempo de recepción
+  Serial.print("Comando recibido: ");
+  Serial.println(receivedCommand);
+}
 
 /****************************************************************/
 /****************************************************************/
@@ -218,6 +245,14 @@ void countPulseB() {
 void stop(){
   stopRightWheel();
   stopLeftWheel();
+}
+
+void stop_stuck(){
+  while(receivedCommand == AUTO){
+    stop();
+    digitalWrite(buzzer,HIGH);
+  }
+  digitalWrite(buzzer,LOW);
 }
 
 void turn_left(){
@@ -242,21 +277,29 @@ void backward(){
 
 
 void autoPilot(){
-  if(!digitalRead(sens.IF)&&!digitalRead(sens.DF))
+  if(!digitalRead(sens.IF)&&!digitalRead(sens.DF) && (receivedCommand == AUTO))
   {
     Serial.println("Avanzo");
     forward_till_edge();
-    if(!digitalRead(sens.IL))
+    if(receivedCommand == AUTO)
     {
-      Serial.println("giro izq");
-      turn_left_deg(90);
-    }
+      if(!digitalRead(sens.IL))
+      {
+        Serial.println("giro izq");
+        turn_left_deg(90);
+      }
 
-    else if(!digitalRead(sens.DL))
-    {
-      Serial.println("giro der");
-      turn_right_deg(90);
+      else if(!digitalRead(sens.DL))
+      {
+        Serial.println("giro der");
+        turn_right_deg(90);
+      }
     }
+    else if (receivedCommand == MANUAL)
+    {
+      stop();
+    }
+    
   }
 }
 
@@ -283,19 +326,37 @@ void turnRightWheel(int dir){
     default:
       break;
   }
+  if (millis() - prev_time > 1000)
+  {
+    if((analogRead(csA)>23) || (analogRead(csB)>23))
+    {
+      Serial.println("me frene por derecha, ayuda");
+      stop_stuck();
+    }
+    prev_time = millis();
+  }
 }
 
 void turnLeftWheel(int dir){
   switch (dir) {
-    case BACKWARD:
-      set_motor_speed(in3, in4, enB, -VEL);
-      break;
-    case FORWARD:
-      set_motor_speed(in3, in4, enB, VEL);
-      break;
-    default:
-      break;
-  }
+      case BACKWARD:
+        set_motor_speed(in3, in4, enB, -VEL);
+        break;
+      case FORWARD:
+        set_motor_speed(in3, in4, enB, VEL);
+        break;
+      default:
+        break;
+    }
+    if (millis() - prev_time > 1000)
+    {
+      if ((analogRead(csA)>20) || (analogRead(csB)>20))
+      {
+        Serial.println("me frene por izquierda, ayuda");
+        stop_stuck(); 
+      }
+      prev_time = millis();
+    }
 }
 
 void turn_right_deg(int deg){
@@ -331,10 +392,13 @@ void move_backward(int time){
 void forward_till_edge(){
   while((!digitalRead(sens.IF)) && (!digitalRead(sens.DF)) && (receivedCommand == AUTO)){
     forward_detectObstacles();
-    Serial.println("forward till edge");
+    //forward();
+    //Serial.println("forward till edge");
   }
-  move_backward(500);
-  stop();
+  if(receivedCommand == AUTO){
+    move_backward(500);
+    stop();
+  }
 }
 
 void forward_detectObstacles(){ 
@@ -342,28 +406,79 @@ void forward_detectObstacles(){
   int counter = 0;
 
   forward();
-  if(!digitalRead(sens.FIA) || !digitalRead(sens.FDA)){ //Objeto al frente
+  if(!digitalRead(sens.FIA) && !digitalRead(sens.FDA)){ //Objeto al frente
     Serial.println("Encontre un objeto");
     if(!digitalRead(sens.IL) && !digitalRead(sens.DL)){
       Serial.println("1");
-      move_backward(300);
+      move_backward(100);
       turn_right_deg(40);
       
     }
     else if(!digitalRead(sens.IL) && digitalRead(sens.DL)){
       Serial.println("2");
-      move_backward(300);
+      move_backward(100);
       turn_left_deg(40);
       
     }
     else if(digitalRead(sens.IL) && !digitalRead(sens.DL)){
       Serial.println("3");
-      move_backward(300);
+      move_backward(100);
       turn_right_deg(40);
       
     }
     else{
       Serial.println("4");
+      stop();
+    }  
+  }
+  else if(!digitalRead(sens.FIA) && digitalRead(sens.FDA)){ //Objeto al frente
+    Serial.println("Encontre un objeto a la izquierda");
+    if(!digitalRead(sens.IL) && !digitalRead(sens.DL)){
+      Serial.println("1");
+      move_backward(100);
+      turn_right_deg(40);
+      
+    }
+    else if(!digitalRead(sens.IL) && digitalRead(sens.DL)){
+      Serial.println("2");
+      move_backward(100);
+      turn_left_deg(40);
+      
+    }
+    else if(digitalRead(sens.IL) && !digitalRead(sens.DL)){
+      Serial.println("3");
+      move_backward(100);
+      turn_right_deg(40);
+      
+    }
+    else{
+      Serial.println("4");
+      stop();
+    }  
+  }
+  else if(digitalRead(sens.FIA) && !digitalRead(sens.FDA)){ //Objeto al frente
+    Serial.println("Encontre un objeto a la derecha");
+    if(!digitalRead(sens.IL) && !digitalRead(sens.DL)){
+      Serial.println("1");
+      move_backward(100);
+      turn_left_deg(40);
+      
+    }
+    else if(!digitalRead(sens.IL) && digitalRead(sens.DL)){
+      Serial.println("2");
+      move_backward(100);
+      turn_left_deg(40);
+      
+    }
+    else if(digitalRead(sens.IL) && !digitalRead(sens.DL)){
+      Serial.println("3");
+      move_backward(100);
+      turn_right_deg(40);
+      
+    }
+    else{
+      Serial.println("4");
+      stop();
     }  
   }
 }
@@ -372,8 +487,7 @@ void forward_detectObstacles(){
 /****************************************************************/
 /****************************************************************/
 //Seteo velocidad de motores con Drivers
-void set_motor_speed(const int ina, const int inb, const int en, int speed)
-{
+void set_motor_speed(const int ina, const int inb, const int en, int speed){
   unsigned char reverse = 0;
 
   if (speed < 0)
