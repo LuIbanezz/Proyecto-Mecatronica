@@ -268,6 +268,15 @@ void turn_right(){
 void forward(){
   turnRightWheel(FORWARD);
   turnLeftWheel(FORWARD);
+  if (millis() - prev_time > 1000)
+    {
+      if ((analogRead(csA)>24) || (analogRead(csB)>24))
+      {
+        Serial.println("me frene, ayuda");
+        stop_stuck(); 
+      }
+      prev_time = millis();
+    }
 }
 
 void backward(){
@@ -326,15 +335,6 @@ void turnRightWheel(int dir){
     default:
       break;
   }
-  if (millis() - prev_time > 1000)
-  {
-    if((analogRead(csA)>23) || (analogRead(csB)>23))
-    {
-      Serial.println("me frene por derecha, ayuda");
-      stop_stuck();
-    }
-    prev_time = millis();
-  }
 }
 
 void turnLeftWheel(int dir){
@@ -347,15 +347,6 @@ void turnLeftWheel(int dir){
         break;
       default:
         break;
-    }
-    if (millis() - prev_time > 1000)
-    {
-      if ((analogRead(csA)>20) || (analogRead(csB)>20))
-      {
-        Serial.println("me frene por izquierda, ayuda");
-        stop_stuck(); 
-      }
-      prev_time = millis();
     }
 }
 
