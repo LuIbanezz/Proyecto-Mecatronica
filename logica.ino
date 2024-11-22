@@ -2,12 +2,19 @@
 #include <Wire.h> 
 #include <SPI.h>
 #include <RF24.h>
-#include "DualVNH5019MotorShield.h"
+//#include "DualVNH5019MotorShield.h"
+
+/*******************************************************/
+/*******************************************************/
 
 #define DELAY 2000
-#define VEL 75
+#define VEL 78
+#define STUCK_VAL 24
+#define TIMEOUT_FOR 20000
+#define TIMEOUT_ELSE 5000
 
-DualVNH5019MotorShield md;
+/*******************************************************/
+/*******************************************************/
 
 /*** Declaracion de prototipos ***/
 void countPulseA(); 
@@ -21,9 +28,9 @@ void move_forward(int time);
 void move_backward(int time);
 void forward_detectObstacles();
 
-/*** Drivers Setup ***/
-const int csA = A9;
-const int csB = A8;
+/*******************************************************/
+/*******************************************************/
+
 /*** Motor Setup ***/
 
 // MOTOR A = RIGHT WHEEL
@@ -35,6 +42,12 @@ const int in2 = 28;  // INBMotor A aprox 3060 pulsos en 2 seg
 const int enB = 8; //PWM
 const int in3 = 29; //INA
 const int in4 = 31; //INB Motor B aprox 2370 pulsos en 2 seg (varia bastante :C)
+
+/*** Drivers Setup ***/
+const int csA = A9;
+const int csB = A8;
+int prev_csA = 0;
+int prev_csB = 0;
 
 /*** Sensor Setup ***/
 const int sens1= 47;
@@ -81,8 +94,6 @@ RF24 radio(RC_CE, RC_CSN); // Inicialización del módulo RF
 const byte address[6] = "00001"; // Dirección del canal de comunicación
 unsigned long lastReceived = millis();
 
-unsigned long prev_time = millis();
-
 /*** State Machine Setup ***/
 volatile int state = 0;
 int prevState = 0;
@@ -95,14 +106,21 @@ enum STATE_MACHINE {
   RIGHT_T  
   };
 
-/*** Other ***/
+/*** Others ***/
 enum WHEEL_DIRECTIONS {
   FORWARD, 
   BACKWARD
   };
 
 bool manual = true;
+
 const int buzzer = 22;
+
+unsigned long prev_time = millis(); // para medir duracion de picos de corriente
+unsigned long timeout_forward = millis(); // para hacer timeout en forward
+unsigned long timeout_backward = millis(); // para hacer timeout en backward
+unsigned long timeout_turnLeft = millis(); // para hacer timeout en turn Left
+unsigned long timeout_turnRight = millis(); // para hacer timeout en turn Right
 
 /*******************************************************/
 /*******************************************************/
@@ -115,14 +133,13 @@ void setup() {
    // Buzzer Setup
   pinMode(buzzer, OUTPUT);
 
-   // Motor Setup
+   // Motor Setup : Inicialización de los controladores de motor
   pinMode(enA, OUTPUT);
   pinMode(in1, OUTPUT);
   pinMode(in2, OUTPUT);
   pinMode(enB, OUTPUT);
   pinMode(in3, OUTPUT);
   pinMode(in4, OUTPUT);
-   // Inicialización de los controladores de motor
 
   // Encoder Setup
   interrupts();
@@ -154,8 +171,6 @@ void setup() {
 
   Serial.println("Receptor listo para recibir señales.");
 
-  // delay(1000);
-
 }
 
 void loop() {
@@ -167,14 +182,18 @@ void loop() {
     lastReceived = millis();
   }
 
-//forward();
- state = receivedCommand;
- //state = AUTO;
+  state = receivedCommand;
+  //state = AUTO;
+
   // State Machine
   switch (state) {
     case AUTO:
       //Serial.println("Caso automatico");
       manual = false;
+      timeout_forward = millis(); 
+      timeout_backward = millis(); 
+      timeout_turnLeft = millis();
+      timeout_turnRight = millis();
       autoPilot();
       break;
     case MANUAL:
@@ -207,12 +226,7 @@ void loop() {
         digitalWrite(buzzer,LOW);
         backward();
       }
-        
       break;
-    // case STOP:
-    //   if (manual)
-    //     stop();
-    //   break;
     default:
       break;
   }
@@ -240,7 +254,6 @@ void handleRadioInterrupt() {
 /****************************************************************/
 /****************************************************************/
 
-
 /*** Funciones globales ***/
 void stop(){
   stopRightWheel();
@@ -258,30 +271,41 @@ void stop_stuck(){
 void turn_left(){
   turnRightWheel(FORWARD);
   turnLeftWheel(BACKWARD);
+  timeout_turnLeft = millis();
 }
 
 void turn_right(){
   turnRightWheel(BACKWARD);
   turnLeftWheel(FORWARD);
+  timeout_turnRight = millis();
 }
 
 void forward(){
   turnRightWheel(FORWARD);
   turnLeftWheel(FORWARD);
-  if (millis() - prev_time > 1000)
+
+  if (millis() - prev_time > 2000)
+  {
+    int read_csA = analogRead(csA);
+    int read_csB = analogRead(csB); 
+
+    if(((read_csA>STUCK_VAL)&&(prev_csA>STUCK_VAL)) || ((read_csB>STUCK_VAL)&&(prev_csB>STUCK_VAL)))
     {
-      if ((analogRead(csA)>24) || (analogRead(csB)>24))
-      {
-        Serial.println("me frene, ayuda");
-        stop_stuck(); 
-      }
-      prev_time = millis();
+      Serial.println("me frene, ayuda");
+      stop_stuck(); 
     }
+
+    prev_time = millis();
+    prev_csA = read_csA;
+    prev_csB = read_csB;
+  }
+  timeout_forward = millis();
 }
 
 void backward(){
   turnRightWheel(BACKWARD);
   turnLeftWheel(BACKWARD);
+  timeout_backward = millis();
 }
 
 
@@ -307,8 +331,25 @@ void autoPilot(){
     else if (receivedCommand == MANUAL)
     {
       stop();
-    }
-    
+    } 
+  }
+
+  //Evaluo timeouts
+  if(millis() - timeout_forward > TIMEOUT_FOR){
+    Serial.println("fuiste mucho para adelante, raro");
+    stop_stuck();
+  }
+  if(millis() - timeout_backward > TIMEOUT_ELSE){
+    Serial.println("fuiste mucho para atras, raro");
+    stop_stuck();
+  }
+  if(millis() - timeout_turnRight > TIMEOUT_ELSE){
+    Serial.println("giraste mucho para la derecha, raro");
+    stop_stuck();
+  }
+  if(millis() - timeout_turnLeft > TIMEOUT_ELSE){
+    Serial.println("giraste mucho para la izquierda, raro");
+    stop_stuck();
   }
 }
 
@@ -383,8 +424,24 @@ void move_backward(int time){
 void forward_till_edge(){
   while((!digitalRead(sens.IF)) && (!digitalRead(sens.DF)) && (receivedCommand == AUTO)){
     forward_detectObstacles();
-    //forward();
     //Serial.println("forward till edge");
+    //Evaluo timeouts
+    if(millis() - timeout_forward > TIMEOUT_FOR){
+      Serial.println("fuiste mucho para adelante, raro");
+      stop_stuck();
+    }
+    if(millis() - timeout_backward > TIMEOUT_ELSE){
+      Serial.println("fuiste mucho para atras, raro");
+      stop_stuck();
+    }
+    if(millis() - timeout_turnRight > TIMEOUT_ELSE){
+      Serial.println("giraste mucho para la derecha, raro");
+      stop_stuck();
+    }
+    if(millis() - timeout_turnLeft > TIMEOUT_ELSE){
+      Serial.println("giraste mucho para la izquierda, raro");
+      stop_stuck();
+    }
   }
   if(receivedCommand == AUTO){
     move_backward(500);
@@ -401,19 +458,19 @@ void forward_detectObstacles(){
     Serial.println("Encontre un objeto");
     if(!digitalRead(sens.IL) && !digitalRead(sens.DL)){
       Serial.println("1");
-      move_backward(100);
+      move_backward(300);
       turn_right_deg(40);
       
     }
     else if(!digitalRead(sens.IL) && digitalRead(sens.DL)){
       Serial.println("2");
-      move_backward(100);
+      move_backward(300);
       turn_left_deg(40);
       
     }
     else if(digitalRead(sens.IL) && !digitalRead(sens.DL)){
       Serial.println("3");
-      move_backward(100);
+      move_backward(300);
       turn_right_deg(40);
       
     }
@@ -426,19 +483,19 @@ void forward_detectObstacles(){
     Serial.println("Encontre un objeto a la izquierda");
     if(!digitalRead(sens.IL) && !digitalRead(sens.DL)){
       Serial.println("1");
-      move_backward(100);
+      move_backward(300);
       turn_right_deg(40);
       
     }
     else if(!digitalRead(sens.IL) && digitalRead(sens.DL)){
       Serial.println("2");
-      move_backward(100);
+      move_backward(300);
       turn_left_deg(40);
       
     }
     else if(digitalRead(sens.IL) && !digitalRead(sens.DL)){
       Serial.println("3");
-      move_backward(100);
+      move_backward(300);
       turn_right_deg(40);
       
     }
@@ -451,19 +508,19 @@ void forward_detectObstacles(){
     Serial.println("Encontre un objeto a la derecha");
     if(!digitalRead(sens.IL) && !digitalRead(sens.DL)){
       Serial.println("1");
-      move_backward(100);
+      move_backward(300);
       turn_left_deg(40);
       
     }
     else if(!digitalRead(sens.IL) && digitalRead(sens.DL)){
       Serial.println("2");
-      move_backward(100);
+      move_backward(300);
       turn_left_deg(40);
       
     }
     else if(digitalRead(sens.IL) && !digitalRead(sens.DL)){
       Serial.println("3");
-      move_backward(100);
+      move_backward(300);
       turn_right_deg(40);
       
     }
