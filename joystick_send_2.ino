@@ -61,23 +61,25 @@ void loop() {
 
   // Verificar si estamos fuera de la zona muerta
   if (abs(xOffset) > deadZone || abs(yOffset) > deadZone) {
-    // Determinar la dirección dominante
-    if (abs(xOffset) > abs(yOffset)) {
-      if (xOffset > 0) {
-        sendState(RIGHT_T);
+    if (lastSent == MANUAL) { // Solo permitir cambiar dirección desde MANUAL
+      // Determinar la dirección dominante
+      if (abs(xOffset) > abs(yOffset)) {
+        if (xOffset > 0) {
+          sendState(RIGHT_T);
+        } else {
+          sendState(LEFT_T);
+        }
       } else {
-        sendState(LEFT_T);
-      }
-    } else {
-      if (yOffset > 0) {
-        sendState(BACKWARD_M);
-      } else {
-        sendState(FORWARD_M);
+        if (yOffset > 0) {
+          sendState(BACKWARD_M);
+        } else {
+          sendState(FORWARD_M);
+        }
       }
     }
   } else {
-    if (lastSent != MANUAL) {
-      sendState(MANUAL);
+    if ((lastSent != MANUAL) && (lastSent != AUTO)) {
+      sendState(MANUAL); // Siempre volver a MANUAL cuando no hay movimiento
     }
   }
 
@@ -106,12 +108,12 @@ const char* stateToString(STATE_MACHINE state) {
 }
 
 void sendState(STATE_MACHINE state) {
-  // Si el último estado es AUTO, solo permitir MANUAL
-  if (lastSent == AUTO && state != MANUAL) {
+  // Reglas para permitir el cambio de estado
+  if ((state != MANUAL) && (lastSent != MANUAL)) {
 #ifdef DEBUG
-    Serial.println("Robot está en AUTO, solo se permite MANUAL.");
+    Serial.println("Solo se puede cambiar de estado desde MANUAL.");
 #endif
-    return; // Ignorar cualquier estado que no sea MANUAL
+    return; // Bloquear cualquier cambio de dirección sin pasar por MANUAL
   }
 
   if (state != lastSent) {
